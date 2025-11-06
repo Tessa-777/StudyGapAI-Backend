@@ -1,5 +1,6 @@
 import os
 from flask import Flask, jsonify
+from dotenv import load_dotenv
 
 from .config import AppConfig
 from .routes.users import users_bp
@@ -9,6 +10,9 @@ from .routes.progress import progress_bp
 from .routes.analytics import analytics_bp
 from flask_cors import CORS
 
+# Load environment variables from .env file
+load_dotenv()
+
 
 def create_app() -> Flask:
 	app = Flask(__name__)
@@ -17,21 +21,52 @@ def create_app() -> Flask:
 
 	# Cache setup (simple in-memory)
 	from flask_caching import Cache
-	cache = Cache(config={"CACHE_TYPE": "SimpleCache", "CACHE_DEFAULT_TIMEOUT": 60})
+	app.config["CACHE_TYPE"] = "SimpleCache"
+	app.config["CACHE_DEFAULT_TIMEOUT"] = 60
+	cache = Cache()
 	cache.init_app(app)
-	app.extensions["cache"] = cache
+	# Flask-Caching stores itself in app.extensions["cache"][cache_instance]
+	# We need to access it via the cache instance methods directly
+	app.extensions["cache_instance"] = cache
 
 	# Initialize repository singleton for in-memory mode
 	# Store it on app instance so it persists across requests
-	if app.config.get("USE_IN_MEMORY_DB") or not (app.config.get("SUPABASE_URL") and app.config.get("SUPABASE_ANON_KEY")):
+	use_in_memory = app.config.get("USE_IN_MEMORY_DB", True)
+	supabase_url = (app.config.get("SUPABASE_URL") or "").strip()
+	supabase_key = (app.config.get("SUPABASE_ANON_KEY") or "").strip()
+	
+	# Debug logging (only in development)
+	if app.config.get("DEBUG"):
+		print(f"[DEBUG] USE_IN_MEMORY_DB: {use_in_memory}")
+		print(f"[DEBUG] SUPABASE_URL: {supabase_url[:50] if supabase_url else 'NOT SET'}...")
+		print(f"[DEBUG] SUPABASE_ANON_KEY: {'SET' if supabase_key else 'NOT SET'}")
+	
+	if use_in_memory or not (supabase_url and supabase_key):
 		from .repositories.memory_repository import InMemoryRepository
 		app.extensions["repository"] = InMemoryRepository()
+		if not use_in_memory:
+			import warnings
+			warnings.warn("USE_IN_MEMORY_DB=false but Supabase credentials missing/invalid. Using in-memory repository.")
 	else:
 		from .repositories.supabase_repository import SupabaseRepository
-		app.extensions["repository"] = SupabaseRepository(
-			app.config["SUPABASE_URL"],
-			app.config["SUPABASE_ANON_KEY"]
-		)
+		try:
+			app.extensions["repository"] = SupabaseRepository(supabase_url, supabase_key)
+			if app.config.get("DEBUG"):
+				print(f"[DEBUG] Supabase repository initialized successfully")
+		except Exception as e:
+			import warnings
+			warnings.warn(f"Failed to initialize Supabase repository: {e}. Falling back to in-memory repository.")
+			print(f"[ERROR] Supabase initialization failed: {e}")
+			print(f"[ERROR] URL used: {supabase_url}")
+			from .repositories.memory_repository import InMemoryRepository
+			app.extensions["repository"] = InMemoryRepository()
+
+	# Initialize Supabase Auth helper for JWT validation
+	from .utils.auth import SupabaseAuth
+	if supabase_url and supabase_key:
+		app.extensions["supabase_auth"] = SupabaseAuth(supabase_url, supabase_key)
+		if app.config.get("DEBUG"):
+			print(f"[DEBUG] Supabase Auth initialized")
 
 	# Health endpoint
 	@app.get("/health")

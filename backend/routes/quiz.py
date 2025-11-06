@@ -3,6 +3,7 @@ from flask import Blueprint, current_app, jsonify, request
 from ..utils.validation import require_fields
 from ..utils.validate import validate_json
 from ..utils.schemas import StartQuizRequest, SubmitQuizRequest
+from ..utils.auth import require_auth, get_current_user_id
 
 
 quiz_bp = Blueprint("quiz", __name__)
@@ -13,9 +14,18 @@ def _repo():
 	return current_app.extensions.get("repository")
 
 
+def _cache():
+	"""Get cache instance safely"""
+	try:
+		return current_app.extensions.get("cache_instance")
+	except (RuntimeError, AttributeError):
+		return None
+
+
 @quiz_bp.get("/questions")
 def get_questions():
-	cache = current_app.extensions.get("cache")
+	"""Public endpoint - no auth required for questions"""
+	cache = _cache()
 	key = f"questions:{int(request.args.get('total', 30))}"
 	if cache:
 		cached = cache.get(key)
@@ -28,25 +38,36 @@ def get_questions():
 
 
 @quiz_bp.post("/quiz/start")
+@require_auth
 @validate_json(StartQuizRequest)
-def start_quiz():
+def start_quiz(current_user_id):
+	"""Start a new quiz - requires authentication"""
 	data = request.get_json(force=True) or {}
-	ok, missing = require_fields(data, ["userId"])
-	if not ok:
-		return jsonify({"error": "missing_fields", "fields": missing}), 400
-	quiz = _repo().create_quiz({"user_id": data["userId"], "total_questions": int(data.get("totalQuestions", 30))})
+	# Use authenticated user_id from JWT, not from request body
+	quiz = _repo().create_quiz({
+		"user_id": current_user_id,
+		"total_questions": int(data.get("totalQuestions", 30))
+	})
 	return jsonify(quiz), 201
 
 
 @quiz_bp.post("/quiz/<quiz_id>/submit")
+@require_auth
 @validate_json(SubmitQuizRequest)
-def submit_quiz(quiz_id: str):
+def submit_quiz(quiz_id: str, current_user_id):
+	"""Submit quiz responses - requires authentication and validates ownership"""
 	data = request.get_json(force=True) or {}
 	ok, missing = require_fields(data, ["responses"])
 	if not ok:
 		return jsonify({"error": "missing_fields", "fields": missing}), 400
+	
 	repo = _repo()
 	try:
+		# Verify quiz belongs to current user
+		quiz = repo.get_quiz_results(quiz_id)
+		if not quiz or quiz.get("quiz", {}).get("user_id") != current_user_id:
+			return jsonify({"error": "forbidden", "message": "Quiz not found or access denied"}), 403
+		
 		responses = []
 		for r in data["responses"]:
 			responses.append({
@@ -67,16 +88,24 @@ def submit_quiz(quiz_id: str):
 
 
 @quiz_bp.get("/quiz/<quiz_id>/results")
-def quiz_results(quiz_id: str):
+@require_auth
+def quiz_results(quiz_id: str, current_user_id):
+	"""Get quiz results - requires authentication and validates ownership"""
 	repo = _repo()
-	cache = current_app.extensions.get("cache")
+	cache = _cache()
 	key = f"quiz_results:{quiz_id}"
 	if cache:
 		cached = cache.get(key)
 		if cached:
+			# Verify ownership even for cached results
+			if cached.get("quiz", {}).get("user_id") != current_user_id:
+				return jsonify({"error": "forbidden", "message": "Access denied"}), 403
 			return jsonify(cached), 200
 	try:
 		results = repo.get_quiz_results(quiz_id)
+		# Verify ownership
+		if not results or results.get("quiz", {}).get("user_id") != current_user_id:
+			return jsonify({"error": "forbidden", "message": "Quiz not found or access denied"}), 403
 		if cache:
 			cache.set(key, results, timeout=120)
 		return jsonify(results), 200

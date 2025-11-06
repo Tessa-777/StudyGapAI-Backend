@@ -9,9 +9,17 @@ def _repo():
 	return current_app.extensions.get("repository")
 
 
+def _cache():
+	"""Get cache instance safely"""
+	try:
+		return current_app.extensions.get("cache_instance")
+	except (RuntimeError, AttributeError):
+		return None
+
+
 @analytics_bp.get("/analytics/dashboard")
 def dashboard():
-	cache = current_app.extensions.get("cache")
+	cache = _cache()
 	if cache:
 		cached = cache.get("analytics:dashboard")
 		if cached:

@@ -13,8 +13,8 @@ class AppConfig:
 	USE_IN_MEMORY_DB = os.getenv("USE_IN_MEMORY_DB", "true").lower() == "true"
 
 	# AI
-	GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-	AI_MODEL_NAME = os.getenv("AI_MODEL_NAME", "gemini-2.0-flash-exp")
+	GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+	AI_MODEL_NAME = os.getenv("AI_MODEL_NAME", "gemini-2.5-flash")
 	AI_MOCK = os.getenv("AI_MOCK", "true").lower() == "true"
 
 	# App

@@ -18,7 +18,7 @@ class UpdateTargetScoreRequest(BaseModel):
 
 
 class StartQuizRequest(BaseModel):
-	userId: str
+	userId: Optional[str] = None  # Optional - will use JWT if not provided
 	totalQuestions: Optional[int] = 30
 
 
@@ -36,13 +36,13 @@ class SubmitQuizRequest(BaseModel):
 
 
 class AnalyzeDiagnosticRequest(BaseModel):
-	userId: str
+	userId: Optional[str] = None  # Optional - will use JWT if not provided
 	quizId: str
 	responses: List[SubmitResponse]
 
 
 class GenerateStudyPlanRequest(BaseModel):
-	userId: str
+	userId: Optional[str] = None  # Optional - will use JWT if not provided
 	diagnosticId: str
 	weakTopics: list
 	targetScore: int
@@ -58,7 +58,7 @@ class ExplainAnswerRequest(BaseModel):
 
 
 class AdjustPlanRequest(BaseModel):
-	userId: str
+	userId: Optional[str] = None  # Optional - will use JWT if not provided
 	studyPlanId: str
 	completedTopics: List[str]
 	newWeakTopics: List[str]

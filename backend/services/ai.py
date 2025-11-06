@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 from flask import current_app
 
 try:
-	import google.generativeai as genai  # type: ignore
+	from google import genai  # type: ignore
 except Exception:  # pragma: no cover
 	genai = None
 
@@ -16,8 +16,11 @@ class AIService:
 		self.model_name = model_name
 		self.client = None
 		if not self.mock and api_key and genai is not None:
-			genai.configure(api_key=api_key)
-			self.client = genai.GenerativeModel(model_name)
+			# New API: genai.Client() automatically picks up GEMINI_API_KEY from env
+			# But we can also pass api_key directly if provided
+			if api_key:
+				os.environ["GEMINI_API_KEY"] = api_key
+			self.client = genai.Client(api_key=api_key)
 
 	def _mock_analysis(self, responses: List[Dict[str, Any]]) -> Dict[str, Any]:
 		incorrect = [r for r in responses if not r.get("isCorrect")]
@@ -35,7 +38,13 @@ class AIService:
 			return self._mock_analysis(responses)
 
 		# Caching by hash of responses
-		cache = current_app.extensions.get("cache") if current_app else None
+		cache = None
+		try:
+			if current_app:
+				cache = current_app.extensions.get("cache_instance")
+		except (RuntimeError, AttributeError):
+			pass
+		
 		cache_key = None
 		if cache:
 			cache_key = f"ai:analyze:{hashlib.sha256(json.dumps(responses, sort_keys=True).encode()).hexdigest()}"
@@ -51,15 +60,46 @@ class AIService:
 			"3. ROOT CAUSES of weaknesses (e.g., 'struggles with quadratics because doesn't understand factoring')\n"
 			"4. Foundational gaps (basic concepts they're missing)\n\n"
 			f"Student data:\n{responses}\n\n"
-			"Return a JSON object with this structure:\n"
-			"{\n  'weakTopics': [{'topicId': '...', 'topicName': '...', 'severity': '...', 'rootCause': '...'}],\n"
-			"  'strongTopics': [{'topicId': '...', 'topicName': '...', 'score': 85}],\n"
-			"  'analysisSummary': '...',\n  'projectedScore': 165,\n  'foundationalGaps': [{'gapDescription': '...', 'affectedTopics': ['...']}]\n}"
+			"CRITICAL: Return ONLY valid JSON, no explanations, no markdown, no code blocks. Start directly with {.\n"
+			"Return a JSON object with this EXACT structure:\n"
+			'{"weakTopics": [{"topicId": "...", "topicName": "...", "severity": "...", "rootCause": "..."}], '
+			'"strongTopics": [{"topicId": "...", "topicName": "...", "score": 85}], '
+			'"analysisSummary": "...", "projectedScore": 165, '
+			'"foundationalGaps": [{"gapDescription": "...", "affectedTopics": ["..."]}]}'
 		)
-		result = self.client.generate_content(prompt)
-		# Expect model to return JSON text
-		text = result.text if hasattr(result, "text") else str(result)
-		result_json = json.loads(text)
+		# New API: client.models.generate_content()
+		response = self.client.models.generate_content(
+			model=self.model_name,
+			contents=prompt
+		)
+		# Extract text from response - new API has .text attribute
+		text = response.text if hasattr(response, "text") and response.text else None
+		
+		# Fallback: try to extract from candidates if .text is empty
+		if not text and hasattr(response, 'candidates') and response.candidates:
+			candidate = response.candidates[0]
+			if hasattr(candidate, 'content') and candidate.content:
+				if hasattr(candidate.content, 'parts') and candidate.content.parts:
+					text = candidate.content.parts[0].text
+		
+		if not text:
+			raise ValueError(f"Empty response from Gemini API. Response: {response}")
+		
+		# Clean text - remove markdown code blocks if present
+		text = text.strip()
+		if text.startswith('```json'):
+			text = text[7:]
+		if text.startswith('```'):
+			text = text[3:]
+		if text.endswith('```'):
+			text = text[:-3]
+		text = text.strip()
+		
+		try:
+			result_json = json.loads(text)
+		except json.JSONDecodeError as e:
+			raise ValueError(f"Failed to parse JSON from Gemini response. Text: {text[:200]}... Error: {e}")
+		
 		if cache and cache_key:
 			cache.set(cache_key, result_json, timeout=300)
 		return result_json
@@ -81,7 +121,13 @@ class AIService:
 			return {"weeks": weeks}
 
 		# Cache by weak topics + params
-		cache = current_app.extensions.get("cache") if current_app else None
+		cache = None
+		try:
+			if current_app:
+				cache = current_app.extensions.get("cache_instance")
+		except (RuntimeError, AttributeError):
+			pass
+		
 		cache_key = None
 		if cache:
 			cache_key = f"ai:plan:{hashlib.sha256(json.dumps({"w": weak_topics, "t": target_score, "c": current_score, "n": weeks_available}, sort_keys=True).encode()).hexdigest()}"
@@ -93,11 +139,42 @@ class AIService:
 			"You are a JAMB prep expert. Create a 6-week study plan for a student with these weak topics: "
 			f"{weak_topics}\n\nTarget score: {target_score}\nCurrent projected score: {current_score}\nWeeks available: {weeks_available}\n\n"
 			"Rules:\n- Start with foundational gaps FIRST\n- Build progressively (don't jump to advanced topics)\n- Each week should have 3-4 topics max\n- Include daily time estimates (30-45 mins/day)\n- Prioritize topics with highest JAMB weight\n\n"
+			"CRITICAL: Return ONLY valid JSON, no explanations, no markdown, no code blocks. Start directly with {.\n"
 			"Return JSON structured as N weeks of daily study goals with fields weekNumber, focus, topics[{topicId, topicName, dailyGoals, estimatedTime, resources[{type, title, url, duration}]}], milestones, daily[{day, minutes}]."
 		)
-		result = self.client.generate_content(prompt)
-		text = result.text if hasattr(result, "text") else str(result)
-		result_json = json.loads(text)
+		# New API: client.models.generate_content()
+		response = self.client.models.generate_content(
+			model=self.model_name,
+			contents=prompt
+		)
+		# Extract text from response - new API has .text attribute
+		text = response.text if hasattr(response, "text") and response.text else None
+		
+		# Fallback: try to extract from candidates if .text is empty
+		if not text and hasattr(response, 'candidates') and response.candidates:
+			candidate = response.candidates[0]
+			if hasattr(candidate, 'content') and candidate.content:
+				if hasattr(candidate.content, 'parts') and candidate.content.parts:
+					text = candidate.content.parts[0].text
+		
+		if not text:
+			raise ValueError(f"Empty response from Gemini API. Response: {response}")
+		
+		# Clean text - remove markdown code blocks if present
+		text = text.strip()
+		if text.startswith('```json'):
+			text = text[7:]
+		if text.startswith('```'):
+			text = text[3:]
+		if text.endswith('```'):
+			text = text[:-3]
+		text = text.strip()
+		
+		try:
+			result_json = json.loads(text)
+		except json.JSONDecodeError as e:
+			raise ValueError(f"Failed to parse JSON from Gemini response. Text: {text[:200]}... Error: {e}")
+		
 		if cache and cache_key:
 			cache.set(cache_key, result_json, timeout=300)
 		return result_json
@@ -112,13 +189,42 @@ class AIService:
 			}
 
 		prompt = (
-			"Provide a concise explanation and correction for the following question/answer pair in JSON with keys explanation, correctReasoning, commonMistake, relatedTopics.\n"
-			f"Data: {payload}"
+			"Provide a concise explanation and correction for the following question/answer pair.\n"
+			f"Data: {payload}\n\n"
+			"CRITICAL: Return ONLY valid JSON, no explanations, no markdown, no code blocks. Start directly with {.\n"
+			"Return JSON with keys: explanation, correctReasoning, commonMistake, relatedTopics."
 		)
-		result = self.client.generate_content(prompt)
-		text = result.text if hasattr(result, "text") else str(result)
-		import json
-
-		return json.loads(text)
+		# New API: client.models.generate_content()
+		response = self.client.models.generate_content(
+			model=self.model_name,
+			contents=prompt
+		)
+		# Extract text from response - new API has .text attribute
+		text = response.text if hasattr(response, "text") and response.text else None
+		
+		# Fallback: try to extract from candidates if .text is empty
+		if not text and hasattr(response, 'candidates') and response.candidates:
+			candidate = response.candidates[0]
+			if hasattr(candidate, 'content') and candidate.content:
+				if hasattr(candidate.content, 'parts') and candidate.content.parts:
+					text = candidate.content.parts[0].text
+		
+		if not text:
+			raise ValueError(f"Empty response from Gemini API. Response: {response}")
+		
+		# Clean text - remove markdown code blocks if present
+		text = text.strip()
+		if text.startswith('```json'):
+			text = text[7:]
+		if text.startswith('```'):
+			text = text[3:]
+		if text.endswith('```'):
+			text = text[:-3]
+		text = text.strip()
+		
+		try:
+			return json.loads(text)
+		except json.JSONDecodeError as e:
+			raise ValueError(f"Failed to parse JSON from Gemini response. Text: {text[:200]}... Error: {e}")
 
 
