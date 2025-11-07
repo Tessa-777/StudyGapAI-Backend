@@ -181,8 +181,18 @@ def get_token_from_existing_user():
         print("SUCCESS! JWT Token obtained:")
         print("="*60)
         print(f"\nToken: {token}\n")
-        print(f"User ID: {user.get('id')}")
-        print(f"Email: {user.get('email')}")
+        
+        # Handle both dict and Pydantic User object
+        if isinstance(user, dict):
+            user_id = user.get('id')
+            user_email = user.get('email')
+        else:
+            # Pydantic User object
+            user_id = getattr(user, 'id', None)
+            user_email = getattr(user, 'email', None)
+        
+        print(f"User ID: {user_id}")
+        print(f"Email: {user_email}")
         print("\n" + "="*60)
         print("\nSave this token to use in API tests:")
         print(f"export JWT_TOKEN='{token}'")

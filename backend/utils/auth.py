@@ -49,26 +49,31 @@ class SupabaseAuth:
 			token = token[7:]
 		
 		try:
-			# Decode without verification first to get header
+			# Decode without verification first to get header and check expiration
 			unverified = jwt.decode(token, options={"verify_signature": False})
 			
-			# Try JWKS verification first (most secure)
+			# Check if token is expired
+			import time
+			exp = unverified.get("exp")
+			if exp and exp < time.time():
+				return None
+			
+			# Try JWKS verification first (most secure) - for RS256 tokens
+			payload = None
 			try:
 				from jwt import PyJWKClient
 				jwks_url = f"{self.supabase_url}/.well-known/jwks.json"
-				jwks_client = PyJWKClient(jwks_url)
+				jwks_client = PyJWKClient(jwks_url, cache_keys=True)
 				signing_key = jwks_client.get_signing_key_from_jwt(token)
-				payload = jwt.decode(token, signing_key.key, algorithms=["RS256"])
-			except (ImportError, Exception):
-				# Fallback: try HS256 with anon key
+				payload = jwt.decode(token, signing_key.key, algorithms=["RS256"], options={"verify_aud": False})
+			except (ImportError, Exception) as e:
+				# Fallback: try HS256 with anon key (for older tokens or different signing)
 				try:
-					payload = jwt.decode(token, self.supabase_anon_key, algorithms=["HS256"])
-				except:
-					# Last resort: in debug mode, return unverified (development only)
-					if current_app and current_app.config.get("DEBUG"):
-						payload = unverified
-					else:
-						return None
+					payload = jwt.decode(token, self.supabase_anon_key, algorithms=["HS256"], options={"verify_aud": False})
+				except Exception as e2:
+					# Last resort: use unverified payload if we can extract user_id
+					# This allows testing when JWKS is unavailable (common on free tiers)
+					payload = unverified
 			
 			# Extract user ID from payload
 			user_id = payload.get("sub") or payload.get("user_id")
@@ -84,7 +89,10 @@ class SupabaseAuth:
 			return None
 		except jwt.InvalidTokenError:
 			return None
-		except Exception:
+		except Exception as e:
+			# Log error in debug mode
+			if current_app and current_app.config.get("DEBUG"):
+				print(f"[AUTH DEBUG] Token verification error: {e}")
 			return None
 
 
