@@ -80,10 +80,11 @@ def create_app() -> Flask:
 	else:
 		origins_list = [origin.strip() for origin in cors_origins_env.split(",")]
 	
+	# CORS configuration - allow all routes for Vercel serverless deployment
 	CORS(app, 
-		 resources={r"/api/*": {
+		 resources={r"/*": {
 			 "origins": origins_list,
-			 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+			 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
 			 "allow_headers": ["Content-Type", "Authorization"],
 			 "supports_credentials": True
 		 }}

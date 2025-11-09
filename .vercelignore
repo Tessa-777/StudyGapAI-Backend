@@ -1,0 +1,61 @@
+# Vercel ignore file
+# Files and directories to exclude from deployment
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Documentation
+dev_documentation/
+*.md
+!README.md
+
+# Scripts (not needed in production)
+scripts/
+
+# Supabase migrations (not needed in runtime)
+supabase/
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# Render specific
+Procfile
+runtime.txt
+
+# Environment files (use Vercel dashboard for env vars)
+.env
+.env.local
+.env.*.local
+
+# Git
+.git/
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
