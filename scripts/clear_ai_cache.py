@@ -9,8 +9,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Add backend to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add project root to path (scripts are in scripts/ subdirectory)
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
 from flask import Flask
 from backend.app import create_app

@@ -3,13 +3,24 @@
 Run Flask development server with proper logging configuration.
 
 This script ensures logs are visible in the terminal.
+Run from project root: python scripts/run_flask.py
 """
 import os
 import sys
+from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
-load_dotenv()
+# Add project root to Python path (scripts are in scripts/ subdirectory)
+project_root = Path(__file__).parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+# Load environment variables from project root
+env_file = project_root / ".env"
+if env_file.exists():
+    load_dotenv(env_file)
+else:
+    load_dotenv()
 
 # Set Flask environment to development if not set
 if not os.getenv("FLASK_ENV"):
