@@ -74,3 +74,13 @@ deploy_logs_*.txt
 # Utility scripts are in scripts/ directory
 # These are development tools, not part of the main application
 
+# Replit
+# .replit should be committed (needed for Replit deployment)
+.replit_backup
+.replit.local
+
+# Vercel (if any remnants exist)
+vercel.json
+.vercel
+.vercelignore
+api/index.py
