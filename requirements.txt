@@ -1,5 +1,5 @@
 Flask==3.0.3
-gunicorn==21.2.0  # Not used in Vercel (serverless), but harmless to include
+gunicorn==21.2.0
 supabase==2.6.0
 pydantic==2.9.2
 requests==2.32.3

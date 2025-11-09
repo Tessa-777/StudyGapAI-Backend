@@ -1,0 +1,39 @@
+# Replit configuration file
+# This tells Replit how to run your Flask application
+
+language = "python3"
+
+# Run command - this is what Replit executes when you click "Run"
+run = "python main.py"
+
+# Entry point for the application
+entrypoint = "main.py"
+
+# Python version - Replit supports Python 3.11
+[python]
+version = "3.11"
+
+# Packager configuration - Replit will auto-install from requirements.txt
+[packager]
+language = "python3"
+ignoredPackages = ["unit_tests"]
+
+# Nix configuration for system packages (if needed)
+[nix]
+channel = "stable-22_11"
+
+# Environment variables should be set in Replit Secrets tab
+# Go to: Secrets (lock icon) → Add new secret
+# Required secrets:
+#   - FLASK_ENV=production
+#   - SECRET_KEY=<your-secret-key>
+#   - SUPABASE_URL=<your-supabase-url>
+#   - SUPABASE_ANON_KEY=<your-anon-key>
+#   - SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key>
+#   - USE_IN_MEMORY_DB=false
+#   - GOOGLE_API_KEY=<your-google-api-key>
+#   - AI_MODEL_NAME=gemini-1.5-flash
+#   - AI_MOCK=false
+#   - CORS_ORIGINS=<your-frontend-url>
+# PORT is automatically set by Replit - don't override it
+
