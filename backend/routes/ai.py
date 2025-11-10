@@ -276,6 +276,7 @@ def analyze_diagnostic(current_user_id=None):
 				"predicted_jamb_score": analysis.get("predicted_jamb_score"),
 				"study_plan": analysis.get("study_plan"),  # Study plan included (Decision 4: Option A)
 				"recommendations": analysis.get("recommendations"),
+				"analysis_summary": analysis.get("analysis_summary"),  # Include analysis summary
 			})
 			diagnostic_id = diagnostic.get("id")
 			if not diagnostic_id:

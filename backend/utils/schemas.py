@@ -121,6 +121,7 @@ class AnalyzeDiagnosticResponse(BaseModel):
 	predicted_jamb_score: PredictedJambScore
 	study_plan: StudyPlan
 	recommendations: List[Recommendation]
+	analysis_summary: str = Field(description="Text summary of the diagnostic analysis from Gemini")
 	generated_at: str
 
 
