@@ -74,19 +74,27 @@ def create_app() -> Flask:
 	# Enhanced CORS configuration
 	# Get CORS origins from environment, default to localhost for development
 	cors_origins_env = os.getenv("CORS_ORIGINS", "http://localhost:5173")
+	
 	# Support comma-separated origins, or "*" for all origins
 	if cors_origins_env == "*":
 		origins_list = "*"
 	else:
-		origins_list = [origin.strip() for origin in cors_origins_env.split(",")]
+		# Split by comma and strip whitespace from each origin
+		origins_list = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+	
+	# Log CORS configuration for debugging (only in development)
+	if app.config.get("DEBUG"):
+		app.logger.info(f"CORS configured for origins: {origins_list}")
 	
 	# CORS configuration - allow all routes
+	# This allows requests from the specified origins
 	CORS(app, 
 		 resources={r"/*": {
 			 "origins": origins_list,
 			 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
 			 "allow_headers": ["Content-Type", "Authorization"],
-			 "supports_credentials": True
+			 "supports_credentials": True,
+			 "expose_headers": ["Content-Type", "Authorization"]
 		 }}
 	)
 

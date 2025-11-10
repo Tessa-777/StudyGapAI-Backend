@@ -6,7 +6,7 @@ Implements structured output, validation, and comprehensive diagnostic analysis
 import os
 import hashlib
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 from flask import current_app
 import requests
@@ -18,7 +18,6 @@ from ..utils.calculations import (
 	validate_and_correct_fluency_index,
 	validate_and_correct_jamb_score,
 	validate_and_correct_overall_performance,
-	ensure_all_topics_in_breakdown,
 	validate_topic_status,
 	validate_error_type,
 	calculate_jamb_base_score
@@ -184,6 +183,32 @@ class EnhancedAIService:
 				"rationale": f"Your lowest performing topic needs immediate attention"
 			})
 		
+		# Generate analysis summary (in second person for frontend display)
+		weak_count = len([t for t in topic_breakdown if t["status"] == "weak"])
+		summary_parts = []
+		if accuracy < 60:
+			summary_parts.append(f"Your performance shows significant gaps with {accuracy:.1f}% accuracy.")
+		elif accuracy < 75:
+			summary_parts.append(f"Your performance is developing with {accuracy:.1f}% accuracy.")
+		else:
+			summary_parts.append(f"You demonstrated strong performance with {accuracy:.1f}% accuracy.")
+		
+		if weak_count > 0:
+			summary_parts.append(f"You have {weak_count} weak topic(s) requiring focused attention.")
+		
+		if primary_weakness:
+			weakness_names = {
+				"conceptual_gap": "conceptual understanding",
+				"procedural_error": "procedural application",
+				"careless_mistake": "attention to detail",
+				"knowledge_gap": "foundational knowledge",
+				"misinterpretation": "question interpretation"
+			}
+			weakness_name = weakness_names.get(primary_weakness, primary_weakness)
+			summary_parts.append(f"Your primary weakness is in {weakness_name}.")
+		
+		analysis_summary = " ".join(summary_parts) if summary_parts else f"Your diagnostic analysis shows an overall accuracy of {accuracy:.1f}%."
+		
 		return {
 			"overall_performance": {
 				"accuracy": round(accuracy, 2),
@@ -204,7 +229,8 @@ class EnhancedAIService:
 			"study_plan": {
 				"weekly_schedule": weekly_schedule
 			},
-			"recommendations": recommendations
+			"recommendations": recommendations,
+			"analysis_summary": analysis_summary
 		}
 
 	def analyze_diagnostic(self, quiz_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -272,8 +298,46 @@ class EnhancedAIService:
 				except:
 					pass
 		
-		# Build prompt with system instruction
-		user_prompt = build_user_prompt(quiz_data)
+		# Fetch topics from repository to include in prompt
+		topics_data = None
+		try:
+			if current_app:
+				repo = current_app.extensions.get("repository")
+				if repo:
+					# Get all topics for the subject
+					subject = quiz_data.get("subject", "Mathematics")
+					topics = repo.get_topics(subject=subject)
+					
+					# Format topics with prerequisites (prerequisite_topics is text[] array of topic names)
+					if topics:
+						topics_data = []
+						for topic in topics:
+							# prerequisite_topics is a text[] array containing topic names directly
+							prerequisite_topics = topic.get("prerequisite_topics", [])
+							
+							# Ensure it's a list (Supabase returns arrays as lists)
+							if not isinstance(prerequisite_topics, list):
+								prerequisite_topics = []
+							
+							# Add topic with prerequisites (already topic names, no resolution needed)
+							topics_data.append({
+								"name": topic.get("name", "Unknown"),
+								"jamb_weight": topic.get("jamb_weight", 0.0),
+								"prerequisites": prerequisite_topics  # Direct topic names from text[] array
+							})
+						
+						# Log topics inclusion
+						current_app.logger.info(f"📚 Including {len(topics_data)} topics with prerequisites in prompt")
+		except Exception as e:
+			# If topics fetch fails, continue without them (non-critical)
+			try:
+				if current_app:
+					current_app.logger.warning(f"⚠️ Failed to fetch topics for prompt: {str(e)}")
+			except:
+				pass
+		
+		# Build prompt with system instruction and topics data
+		user_prompt = build_user_prompt(quiz_data, topics_data=topics_data)
 		
 		# Combine system instruction and user prompt
 		full_prompt = f"{SYSTEM_INSTRUCTION}\n\n{user_prompt}\n\nRemember: Return ONLY valid JSON matching the required schema. No markdown, no code blocks, no explanations outside JSON."
@@ -605,16 +669,56 @@ class EnhancedAIService:
 		if "topic_breakdown" not in result:
 			raise ValueError("Missing 'topic_breakdown' in AI response")
 		
-		# Fix Issue 1: Ensure all topics from questions are included in breakdown
-		result["topic_breakdown"] = ensure_all_topics_in_breakdown(
+		# Verify Gemini returned exactly 5 topics (as instructed in prompt)
+		topic_count = len(result["topic_breakdown"])
+		if topic_count != 5:
+			try:
+				if current_app:
+					current_app.logger.warning(f"⚠️ Gemini returned {topic_count} topics instead of 5. Expected exactly 5 main topics.")
+			except:
+				pass
+		
+		# ENFORCE EXACTLY 5 TOPICS - aggregate all topics into the 5 main topics
+		from backend.utils.topic_mapping import enforce_five_topics
+		result["topic_breakdown"] = enforce_five_topics(
 			result["topic_breakdown"],
-			questions_list,
-			subject
+			questions_list
 		)
+		
+		# Verify we have exactly 5 topics
+		if len(result["topic_breakdown"]) != 5:
+			try:
+				if current_app:
+					current_app.logger.error(f"❌ CRITICAL: enforce_five_topics returned {len(result['topic_breakdown'])} topics instead of 5!")
+			except:
+				pass
+			# Force exactly 5 by taking first 5 or padding
+			if len(result["topic_breakdown"]) > 5:
+				result["topic_breakdown"] = result["topic_breakdown"][:5]
+			elif len(result["topic_breakdown"]) < 5:
+				# This shouldn't happen, but pad if needed
+				from backend.utils.topic_mapping import MAIN_TOPICS
+				existing_topics = {t.get("topic", "") for t in result["topic_breakdown"]}
+				for main_topic in MAIN_TOPICS:
+					if main_topic not in existing_topics and len(result["topic_breakdown"]) < 5:
+						result["topic_breakdown"].append({
+							"topic": main_topic,
+							"accuracy": 0.0,
+							"fluency_index": 0.0,
+							"status": "weak",
+							"questions_attempted": 0,
+							"severity": None,
+							"dominant_error_type": None
+						})
 		
 		# Validate and correct each topic in breakdown
 		corrected_breakdown = []
 		for topic in result["topic_breakdown"]:
+			# Clean topic name - remove "Subject: " prefix if present (Gemini should return just topic name)
+			topic_name = topic.get("topic", "")
+			if ":" in topic_name:
+				topic["topic"] = topic_name.split(":")[-1].strip()
+			
 			# Fix Issue 4: Validate and correct Fluency Index (ensures it's always a number)
 			corrected_topic = validate_and_correct_fluency_index(topic, questions_list)
 			
@@ -652,6 +756,49 @@ class EnhancedAIService:
 			if not isinstance(count, int) or count < 0:
 				count = 0
 			validated_dist[error_type] = count
+		
+		# If error_distribution is empty or all zeros, calculate from questions
+		# This ensures the graph always has data to display
+		if not any(validated_dist.values()):
+			from backend.utils.error_analysis import calculate_error_distribution
+			try:
+				calculated_dist = calculate_error_distribution(questions_list)
+				# Use calculated distribution if it has data
+				if any(calculated_dist.values()):
+					validated_dist = calculated_dist
+					if current_app:
+						current_app.logger.info(f"📊 Calculated error_distribution from questions: {validated_dist}")
+				else:
+					# If calculation still gives all zeros, check if there are incorrect answers
+					# If there are incorrect answers but no classification, default all to knowledge_gap
+					incorrect_answers = [q for q in questions_list if not q.get("is_correct", False)]
+					if incorrect_answers:
+						# Default case: classify all incorrect answers as knowledge_gap
+						validated_dist["knowledge_gap"] = len(incorrect_answers)
+						if current_app:
+							current_app.logger.info(f"📊 Defaulting {len(incorrect_answers)} incorrect answers to knowledge_gap")
+					else:
+						# No incorrect answers - all zeros is correct
+						if current_app:
+							current_app.logger.info("ℹ️ All answers correct - error_distribution is all zeros (expected)")
+			except Exception as e:
+				try:
+					if current_app:
+						current_app.logger.warning(f"⚠️ Failed to calculate error_distribution: {str(e)}")
+					# Fallback: if calculation fails, default all incorrect answers to knowledge_gap
+					incorrect_answers = [q for q in questions_list if not q.get("is_correct", False)]
+					if incorrect_answers:
+						validated_dist["knowledge_gap"] = len(incorrect_answers)
+						if current_app:
+							current_app.logger.info(f"📊 Fallback: Defaulting {len(incorrect_answers)} incorrect answers to knowledge_gap")
+				except:
+					pass
+		
+		# Ensure all error types are present (even if 0) - required for frontend graph
+		for error_type in VALID_ERROR_TYPES:
+			if error_type not in validated_dist:
+				validated_dist[error_type] = 0
+		
 		rca["error_distribution"] = validated_dist
 		
 		# Fix primary_weakness to match the highest value in error_distribution
@@ -678,6 +825,55 @@ class EnhancedAIService:
 				f"AI returned primary_weakness '{ai_primary_weakness}' but error_distribution shows "
 				f"'{primary_weakness}' as highest. Using calculated value for consistency."
 			)
+		
+		# Validate analysis_summary (ensure it's in second person)
+		if "analysis_summary" not in result:
+			# Generate a default summary if missing (in second person)
+			overall_accuracy = overall_perf.get("accuracy", 0)
+			weak_topics = [t for t in result["topic_breakdown"] if t.get("status") == "weak"]
+			primary_weakness = rca.get("primary_weakness", "knowledge_gap")
+			
+			summary_parts = []
+			if overall_accuracy < 60:
+				summary_parts.append(f"Your performance shows significant gaps with {overall_accuracy:.1f}% accuracy.")
+			elif overall_accuracy < 75:
+				summary_parts.append(f"Your performance is developing with {overall_accuracy:.1f}% accuracy.")
+			else:
+				summary_parts.append(f"You demonstrated strong performance with {overall_accuracy:.1f}% accuracy.")
+			
+			if weak_topics:
+				summary_parts.append(f"You have {len(weak_topics)} weak topic(s) requiring focused attention.")
+			
+			weakness_names = {
+				"conceptual_gap": "conceptual understanding",
+				"procedural_error": "procedural application",
+				"careless_mistake": "attention to detail",
+				"knowledge_gap": "foundational knowledge",
+				"misinterpretation": "question interpretation"
+			}
+			weakness_name = weakness_names.get(primary_weakness, primary_weakness)
+			summary_parts.append(f"Your primary weakness is in {weakness_name}.")
+			
+			result["analysis_summary"] = " ".join(summary_parts) if summary_parts else f"Your diagnostic analysis shows an overall accuracy of {overall_accuracy:.1f}%."
+		else:
+			# Ensure analysis_summary is a string
+			if not isinstance(result["analysis_summary"], str):
+				result["analysis_summary"] = str(result["analysis_summary"])
+			# Ensure it's not empty
+			if not result["analysis_summary"].strip():
+				overall_accuracy = overall_perf.get("accuracy", 0)
+				result["analysis_summary"] = f"Your diagnostic analysis shows an overall accuracy of {overall_accuracy:.1f}%."
+			# Check if it needs to be converted from third person to second person
+			# Common patterns: "The student" -> "You", "Student's" -> "Your", "Student" -> "You"
+			summary = result["analysis_summary"]
+			# Simple conversion for common patterns (if AI didn't follow instructions)
+			if "the student" in summary.lower() or "student's" in summary.lower():
+				# Log warning but don't auto-convert (let AI fix it in next generation)
+				try:
+					if current_app:
+						current_app.logger.warning("AI returned analysis_summary in third person. It should be in second person ('You/Your').")
+				except:
+					pass
 		
 		# Fix Issue 3: Validate and correct predicted_jamb_score
 		# This ensures score is 0-400 and confidence_interval is not "N/A"

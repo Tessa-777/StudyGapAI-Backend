@@ -12,9 +12,14 @@ RESPONSE_SCHEMA = {
         "root_cause_analysis",
         "predicted_jamb_score",
         "study_plan",
-        "recommendations"
+        "recommendations",
+        "analysis_summary"
     ],
     "properties": {
+        "analysis_summary": {
+            "type": "string",
+            "description": "A concise text summary (2-4 sentences) written in SECOND PERSON ('You exhibit...', 'Your performance shows...') highlighting root causes, cognitive patterns, and foundational weaknesses. This will be displayed directly to the student, so use 'you/your' instead of 'the student/student's'. Should be brief and suitable for frontend display."
+        },
         "overall_performance": {
             "type": "object",
             "required": ["accuracy", "total_questions", "correct_answers", "avg_confidence", "time_per_question"],
