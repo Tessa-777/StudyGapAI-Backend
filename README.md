@@ -9,7 +9,7 @@
 
 This is the official backend for **StudyGapAI**, an AI-powered learning diagnostics platform. It combines **Flask**, **Supabase**, and the **Google Gemini API** to provide personalized analysis and study plans for Nigerian students. This service is deployed on **Railway**.
 
-**➡️ Frontend Repository:** [https://github.com/Tessa-777/Royal-Light-StudyGapAI](https://github.com/Tessa-777/Royal-Light-StudyGapAI)
+**➡️ Frontend Repository:** [https://github.com/Tessa-777/StudyGapAI](https://github.com/Tessa-777/StudyGapAI)
 
 ---
 
@@ -57,8 +57,8 @@ StudyGapAI was developed entirely by Theresia Saumu as the sole developer for th
 
 1.  **Clone the `main` branch:**
     ```bash
-    git clone --branch main https://github.com/Tessa-777/Royal-Light-StudyGapAI-Backend.git
-    cd Royal-Light-StudyGapAI-Backend
+    git clone --branch main https://github.com/Tessa-777/StudyGapAI-Backend.git
+    cd StudyGapAI-Backend
     ```
 
 2.  **Install dependencies:**
