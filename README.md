@@ -13,6 +13,22 @@ This is the official backend for **StudyGapAI**, an AI-powered learning diagnost
 
 ---
 
+## Development & Authorship
+
+StudyGapAI was developed entirely by Theresia Saumu as the sole developer for the WUD AI Hackathon 2024 (1st Place Winner).
+
+**Technical Development:** 100% developed by Theresia Kitele
+- Full-stack architecture and implementation
+- All backend code (Python Flask)
+- All frontend code
+- Database design and implementation
+- AI integration and prompt engineering
+- Deployment and DevOps
+
+**Hackathon Collaboration:** During the 1 week hackathon sprint, team members contributed to ideation and strategic direction. All code and technical implementation was authored solely by Theresia Saumu.
+
+**Current Status:** StudyGapAI is now being developed independently by Theresia Saumu.
+
 ## ✨ Core Features
 
 - **AI-Powered Diagnostic Engine:** The core of the API. Analyzes quiz results and student explanations to identify root cause knowledge gaps.
